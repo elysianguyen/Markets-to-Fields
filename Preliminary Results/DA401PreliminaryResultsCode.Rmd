@@ -1,0 +1,349 @@
+---
+title: "DA 401 Preliminary Results"
+author: "Elysia Nguyen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# DATA PREPROCESSING
+
+### Import individual datasets
+
+```{r}
+ExchangeRate_Annual <- read.csv("AnnualExchangeRate.csv", header = TRUE)
+ProductionValue <- read.csv("ProductionValue.csv", header = TRUE)
+ProductionQuantity <- read.csv("ProductionQuantity.csv", header = TRUE)
+ExportQuantity <- read.csv("ExportQuantity.csv", header = TRUE)
+```
+
+Export Quantity: FAOSTAT has missing data for “Rice.” “Rice, milled” is used and treated as equivalent to “Rice” in others.
+
+Production Value: https://files-faostat.fao.org/production/QV/QV_e.pdf. Understand constant units and what can or cannot be inferred from them. 
+
+Producer Price: https://files-faostat.fao.org/production/QV/QV_e.pdf. Justify the calculation. Note the unit.
+
+Determine the common headers or columns to include in the overall dataset:
+- Element for variable name
+- Year
+- Unit (not included in the dataset but noted in the metadata)
+- Value
+
+### Extract relevant columns from each datasets
+
+```{r}
+library(dplyr)
+
+Rice_ExchangeRate_Annual <- ExchangeRate_Annual %>% select(Element, Year, Value)
+Rice_ProductionValue <- ProductionValue %>% select(Element, Year, Value)
+Rice_ProductionQuantity <- ProductionQuantity %>% select(Element, Year, Value)
+Rice_ExportQuantity <- ExportQuantity %>% select(Element, Year, Value)
+```
+
+### Combine individual datasets into one overall 
+
+```{r}
+library(dplyr)
+
+Rice_Unpivot <- bind_rows(
+  Rice_ExchangeRate_Annual, 
+  Rice_ProductionValue, 
+  Rice_ProductionQuantity, 
+  Rice_ExportQuantity) %>%
+  arrange(Year) # Arrange rows by year
+
+head(Rice_Unpivot)
+```
+
+### Pivot the dataset with each variable as its own column
+
+```{r}
+library(tidyr)
+
+Rice <- Rice_Unpivot %>% pivot_wider(names_from = Element, values_from = Value)
+
+head(Rice)
+```
+
+### Rename the variables
+
+```{r}
+Rice <- Rice %>%
+  rename("VNDPerUSD" = "Standard local currency units per USD",
+         "ProductionValueVND" = "Gross Production Value (constant 2014-2016 thousand SLC)",
+         "ProductionValueUSD" = "Gross Production Value (constant 2014-2016 thousand US$)",
+         "ProductionQuantity" = "Production",
+         "ExportQuantity" = "Export quantity")
+
+head(Rice)
+```
+
+### Calculate Producer Price as Production Value divided by Production Quantity
+
+```{r}
+Rice <- Rice %>% mutate(ProducerPriceVND = ProductionValueVND / ProductionQuantity, 
+                        ProducerPriceUSD = ProductionValueUSD / ProductionQuantity)
+
+head(Rice)
+```
+
+Note the units in the documentation.
+
+*Values of Producer Prices are identical throughout the years. Use Production Values in VAR instead? Production Values are not standardized.* 
+
+# DATA VISUALIZATION
+
+### Visualize the variables over time highlighting the devaluation in 1985
+
+```{r}
+library(ggplot2)
+
+ggplot(Rice, aes(x = Year, y = VNDPerUSD)) +
+  geom_line(color = "blue") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "red") +
+  labs(title = "Vietnam Dong (VND) Per United States Dollar (USD) Exchange Rates 1975-2023",
+       x = "Year",
+       y = "VND Per USD Exchange Rate") +
+  theme_classic()
+```
+
+```{r}
+ggplot(Rice, aes(x = Year, y = ProducerPriceUSD)) +
+  geom_line(color = "green") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "red") +
+  labs(title = "Producer Prices of Rice in United States Dollars (USD) 1975-2023",
+       x = "Year",
+       y = "Price in USD") +
+  theme_classic()
+```
+
+```{r}
+ggplot(Rice, aes(x = Year, y = ProducerPriceVND)) +
+  geom_line(color = "darkgreen") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "red") +
+  labs(title = "Producer Prices of Rice in Vietnam Dong 1975-2023",
+       x = "Year",
+       y = "Price in VND") +
+  theme_classic()
+```
+
+```{r}
+ggplot(Rice, aes(x = Year, y = ProductionValueUSD)) +
+  geom_line(color = "green") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "red") +
+  labs(title = "Production Values of Rice in United States Dollars (USD) 1975-2023",
+       x = "Year",
+       y = "Value in USD") +
+  theme_classic()
+```
+
+```{r}
+ggplot(Rice, aes(x = Year, y = ProductionValueVND)) +
+  geom_line(color = "darkgreen") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "red") +
+  labs(title = "Production Values of Rice in Vietnam Dong (VND) 1975-2023",
+       x = "Year",
+       y = "Value in VND") +
+  theme_classic()
+```
+
+```{r}
+ggplot(Rice, aes(x = Year, y = ExportQuantity)) +
+  geom_line(color = "purple") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "red") +
+  labs(title = "Export Quantities of Rice in Tons 1975-2023",
+       x = "Year",
+       y = "Export in Tons") +
+  theme_classic()
+```
+
+Looking at the y-axis, I should consider transforming the values of Export Quantity.
+
+# VAR MODEL
+
+### Make each variable a time series
+
+*I have yet to control for GDP or inflation.*
+
+```{r}
+ExchangeRate_Annual_TS <- ts(Rice$VNDPerUSD, 
+                              start = min(Rice$Year), 
+                              end = max(Rice$Year), 
+                              frequency = 1)
+
+ProducerPriceVND_TS <- ts(Rice$ProducerPriceVND, start = min(Rice$Year), end = max(Rice$Year), frequency = 1)
+
+ProducerPriceUSD_TS <- ts(Rice$ProducerPriceUSD, start = min(Rice$Year), end = max(Rice$Year), frequency = 1)
+
+ExportQuantity_TS <- ts(Rice$ExportQuantity, 
+                         start = min(Rice$Year), 
+                         end = max(Rice$Year), 
+                         frequency = 1)
+
+# Use Production Values instead of Producer Prices
+
+ProductionValueVND_TS <- ts(Rice$ProductionValueVND, 
+                           start = min(Rice$Year), 
+                           end = max(Rice$Year), 
+                           frequency = 1)
+
+ProductionValueUSD_TS <- ts(Rice$ProductionValueUSD, 
+                           start = min(Rice$Year), 
+                           end = max(Rice$Year), 
+                           frequency = 1)
+```
+
+There is no missing data for each variable or time series.
+
+### Examine stationarity of each time series
+
+```{r}
+plot(ExchangeRate_Annual_TS, 
+     main = "Vietnam Dong (VND) Per United States Dollar (USD) Exchange Rates 1975-2023",
+     xlab = "Year", ylab = "VND Per USD Exchange Rate")
+```
+
+There is likely no need to make variations of the same line charts.
+
+```{r}
+acf(ExchangeRate_Annual_TS, main = "ACF of Exchange Rates")
+```
+
+```{r}
+pacf(ExchangeRate_Annual_TS, main = "PACF of Exchange Rates")
+```
+
+```{r}
+library(tseries)
+
+adf.test(ExchangeRate_Annual_TS)
+
+adf.test(ExportQuantity_TS)
+
+adf.test(ProductionValueUSD_TS)
+
+adf.test(ProductionValueVND_TS)
+```
+
+None of the time series is stationary.
+
+### Transform each time series into a stationary time series through differencing
+
+```{r}
+ExchangeRate_Annual_Diff <- diff(ExchangeRate_Annual_TS, differences = 1)
+
+adf.test(ExchangeRate_Annual_Diff)
+```
+
+```{r}
+#ProducerPriceVND_Diff <- diff(ProducerPriceVND_TS, differences = 2)
+
+#adf.test(ProducerPriceVND_Diff)
+```
+
+I need to take the second difference of all the time series because one difference is insufficient to make ProducerPriceVND_TS stationary.
+
+```{r}
+#ProducerPriceUSD_Diff <- diff(ProducerPriceUSD_TS, differences = 2)
+
+#adf.test(ProducerPriceUSD_Diff)
+```
+
+```{r}
+ExportQuantity_Diff <- diff(ExportQuantity_TS, differences = 1)
+
+adf.test(ExportQuantity_Diff)
+```
+
+```{r}
+ProductionValueVND_Diff <- diff(ProductionValueVND_TS, differences = 1)
+
+adf.test(ExportQuantity_Diff)
+```
+
+```{r}
+ProductionValueUSD_Diff <- diff(ProductionValueUSD_TS, differences = 1)
+
+adf.test(ExportQuantity_Diff)
+```
+
+*What is cointegration?*
+
+### Combine all the time series into one matrix
+
+```{r}
+Rice_Matrix <- cbind(ExchangeRate_Annual_Diff, ProductionValueUSD_Diff, ExportQuantity_Diff) 
+```
+
+Production Values in USD is used in the model as they are expected to reflect the fluctuations in Exchange Rates more clearly than those in VND.
+
+### Determine the lag order
+
+```{r}
+library(vars)
+
+VARselect(Rice_Matrix, lag.max = 3, type = "none")
+```
+
+*const, trend, both?*
+
+*How to read the results? Do they indicate 2 overall?*
+
+### Estimate the VAR model
+
+```{r}
+#nrow(Rice_Matrix)
+```
+
+```{r}
+#cor(Rice_Matrix)
+```
+
+```{r}
+#summary(Rice_Matrix)
+```
+
+```{r}
+Rice_VAR <- VAR(Rice_Matrix, p = 2, type = "none")
+
+summary(Rice_VAR)
+```
+
+*Error in solve.default(Sigma): system is computationally singular: reciprocal condition number = 2.05396e-28* when Producer Prices are used.
+
+# Perform Cholesky Decomposition
+
+```{r}
+# Extract residuals from the estimated VAR model
+Cholesky_resid <- resid(Rice_VAR)
+
+# Compute the covariance matrix of the residuals
+Cholesky_resid_cov <- cov(Cholesky_resid)
+
+# Perform Cholesky decomposition
+# chol() returns an upper-triangular matrix, so transpose it to obtain a lower-triangular matrix
+Cholesky_decomp <- t(chol(Cholesky_resid_cov))
+
+# Check the decomposition
+Cholesky_decomp %*% t(Cholesky_decomp)
+```
+
+*What does any of this mean?*
+
+# Compute IRF
+
+```{r}
+IRF_general <- irf(Rice_VAR, impulse = "ExchangeRate_Annual_Diff", response = c("ProductionValueUSD_Diff", "ExportQuantity_Diff"), n.ahead = 10, ortho = FALSE, boot = TRUE)
+
+plot(IRF_general)
+```
+
