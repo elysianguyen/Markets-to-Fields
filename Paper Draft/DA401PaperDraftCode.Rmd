@@ -1,0 +1,298 @@
+---
+title: "DA 401 Paper Draft"
+author: "Elysia Nguyen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# DATA PREPROCESSING
+
+*Import and process monthly exchange rates.*
+
+### Import individual datasets
+
+```{r}
+ExchangeRate_Annual <- read.csv("AnnualExchangeRate.csv", header = TRUE)
+ExportQuantity <- read.csv("ExportQuantity.csv", header = TRUE)
+```
+
+Export Quantity: FAOSTAT has missing data for “Rice.” “Rice, milled” is used and treated as equivalent to “Rice” in others.
+
+Determine the common headers or columns to include in the overall dataset:
+- Element for variable name
+- Year
+- Unit (not included in the dataset but noted in the metadata)
+- Value
+
+```{r}
+ExchangeRate_Monthly <- read.csv("MonthlyExchangeRate.csv", header = TRUE)
+```
+
+### Extract relevant columns from each datasets
+
+```{r}
+library(dplyr)
+
+Rice_ExchangeRate_Annual <- ExchangeRate_Annual %>% select(Element, Year, Value)
+Rice_ExportQuantity <- ExportQuantity %>% select(Element, Year, Value)
+```
+
+```{r}
+ExchangeRate_Monthly <- ExchangeRate_Monthly %>% select(Year, Months, Value) 
+
+MonthLevels <- c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+ExchangeRate_Monthly$Months <- factor(ExchangeRate_Monthly$Months, levels = MonthLevels, ordered = TRUE)
+
+ExchangeRate_Monthly <- ExchangeRate_Monthly %>% arrange(Year, Months)
+
+```
+
+### Combine individual datasets into one overall 
+
+```{r}
+Rice_Unpivot <- bind_rows(
+  Rice_ExchangeRate_Annual, 
+  Rice_ExportQuantity) %>%
+  arrange(Year) # Arrange rows by year
+
+head(Rice_Unpivot)
+```
+
+### Pivot the dataset with each variable as its own column
+
+```{r}
+library(tidyr)
+
+Rice <- Rice_Unpivot %>% pivot_wider(names_from = Element, values_from = Value)
+
+head(Rice)
+```
+
+### Rename the variables
+
+```{r}
+Rice <- Rice %>%
+  rename("VNDPerUSD" = "Standard local currency units per USD",
+         "ExportQuantity" = "Export quantity")
+
+head(Rice)
+```
+
+Note the units in the documentation.
+
+# DATA VISUALIZATION
+
+*Analyze monthly exchange rates.*
+
+### Visualize the variables over time highlighting the devaluation in 1985
+
+```{r}
+library(ggplot2)
+library(scales)
+
+ggplot(Rice, aes(x = Year, y = VNDPerUSD)) +
+  geom_line(size = 0.75, color = "steelblue") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "firebrick") +
+  labs(title = "Vietnam Dong (VND) Per United States Dollar (USD) Exchange Rates 1975-2023",
+       x = "Year",
+       y = "VND Per USD Exchange Rate") +
+  theme_classic() +
+  theme(text = element_text(family = "Times New Roman"),
+        plot.title = element_text(face = "bold")) +
+  scale_y_continuous(labels = comma)
+```
+
+```{r}
+ggplot(Rice, aes(x = Year, y = ExportQuantity)) +
+  geom_line(size = 0.75, color = "forestgreen") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "firebrick") +
+  labs(title = "Export Quantities of Rice in Tons 1975-2023",
+       x = "Year",
+       y = "Export in Tons") +
+  theme_classic() +
+  theme(text = element_text(family = "Times New Roman"),
+        plot.title = element_text(face = "bold")) +
+  scale_y_continuous(labels = comma)
+```
+
+Looking at the y-axis, I should consider transforming the values of Export Quantity.
+
+```{r}
+ggplot(ExchangeRate_Monthly, aes(x = Months, y = Value, group = Year)) +
+  geom_line(size = 0.75, color = "firebrick") +
+  labs(title = "Vietnam Dong (VND) Per United States Dollar (USD) Exchange Rates 1985",
+       x = "Month",
+       y = "VND Per USD Exchange Rate") +
+  theme_classic() +
+  theme(text = element_text(family = "Times New Roman"),
+        plot.title = element_text(face = "bold"))
+```
+
+# SVAR MODEL
+
+### Make each variable a time series
+
+*I have yet to control for GDP or inflation.*
+
+```{r}
+ExchangeRate_Annual_TS <- ts(Rice$VNDPerUSD, 
+                              start = min(Rice$Year), 
+                              end = max(Rice$Year), 
+                              frequency = 1)
+
+ExportQuantity_TS <- ts(Rice$ExportQuantity, 
+                         start = min(Rice$Year), 
+                         end = max(Rice$Year), 
+                         frequency = 1)
+```
+
+There is no missing data for each variable or time series.
+
+### Examine stationarity of each time series
+
+```{r}
+acf(ExchangeRate_Annual_TS, main = "ACF of Annual Exchange Rates")
+```
+
+```{r}
+pacf(ExchangeRate_Annual_TS, main = "PACF of Annual Exchange Rates")
+```
+
+```{r}
+acf(ExportQuantity_TS, main = "ACF of Export Quantities")
+```
+
+```{r}
+pacf(ExportQuantity_TS, main = "PACF of Export Quantities")
+```
+
+```{r}
+library(tseries)
+
+adf.test(ExchangeRate_Annual_TS)
+
+adf.test(ExportQuantity_TS)
+```
+
+None of the time series is stationary.
+
+### Transform each time series into a stationary time series through differencing
+
+```{r}
+ExchangeRate_Annual_Diff <- diff(ExchangeRate_Annual_TS, differences = 1)
+
+adf.test(ExchangeRate_Annual_Diff)
+```
+
+```{r}
+ExportQuantity_Diff <- diff(ExportQuantity_TS, differences = 1)
+
+adf.test(ExportQuantity_Diff)
+```
+
+### Combine all the time series into one matrix
+
+```{r}
+Rice_Matrix <- cbind(ExchangeRate_Annual_Diff, ExportQuantity_Diff) 
+```
+
+### Determine the lag order
+
+```{r}
+library(vars)
+
+VARselect(Rice_Matrix, lag.max = 3, type = "none")
+```
+
+*const, trend, both?*
+
+*How to read the results? Do they indicate 2 overall?*
+
+### Estimate the reduced-form VAR
+
+```{r}
+Rice_VAR <- VAR(Rice_Matrix, p = 2, type = "none")
+
+summary(Rice_VAR)
+```
+
+### Identify structural shocks with SVAR CV
+
+*Choose a specific method based on my theoretical framework.*
+
+- Heteroskedasticity-based (CV, ST, GARCH): leverage time-varying variances in shocks to identify structural parameters.
+
+=> This method assumes two different types of variance. Try all three (ST) to see which one fits the best. Note that these three make different assumptions themselves (page 15).
+
+=> This might be a safer assumption.
+
+- Independence-based (CVM, DC, NGML): rely on non-Gaussian innovations and statistical independence to identify shocks.
+
+=> This method assumes non-normal distribution of the residuals.
+
+*Model estimation and identification* 
+
+*Diagnostic testing (e.g., Chow tests, Wald tests)*
+
+- B matrix is a unique decomposition of the covariance matrix.
+
+- Wald test guarantees lambda 1 and 2 are different.
+
+=> This distinguishes the two variables.
+
+- VAR u = SVAR B * e
+
+*Inference via bootstrap methods (wild, moving-block, bootstrap-after-bootstrap)*
+
+*Economic interpretation tools like impulse-response functions, FEVD, and historical decomposition*
+
+- Show CF for IRF.
+
+- Historical decomposition and counterfactual analysis come after.
+
+```{r}
+library(svars)
+
+Rice_SVAR <- id.cv(Rice_VAR, SB = c(1985, 1)) # Specify the structural break in 1985
+
+summary(Rice_SVAR)
+```
+
+### Assess the IRFs
+
+```{r}
+plot(irf(Rice_SVAR, n.ahead = 10))
+```
+
+### Add confidence intervals around IRFs
+
+```{r}
+Rice_IRF <- wild.boot(Rice_SVAR, nboot = 500)
+```
+
+```{r}
+plot(Rice_IRF)
+```
+
+### Compute FEVD
+
+```{r}
+fevd(Rice_SVAR, n.ahead = 10)
+```
+
+### Compute the historical decomposition
+
+```{r}
+Rice_HD <- hd(Rice_SVAR)
+
+plot(Rice_HD)
+```
+
+### Conduct counterfactual analysis
