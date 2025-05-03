@@ -1,4 +1,4 @@
-## From Markets to Fields: The Impact of Vietnam’s 1985 Dong Devaluation on Rice Exports 
+## From Markets to Fields: <br/> The Impact of Vietnam’s 1985 Dong Devaluation on Rice Exports 
 
 This repository contains the data, code, and visualizations for the research investigating how the 1985 currency devaluation in Vietnam influenced rice export performance. Using a Structural Vector Autoregressive (SVAR) model identified via the changes in volatility (CV) method, the study quantifies the short-run and long-run dynamics between exchange rate shocks and agricultural trade.
 
