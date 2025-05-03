@@ -1,0 +1,379 @@
+---
+title: "From Markets to Fields: The Impact of Vietnam’s 1985 Dong Devaluation on Rice Exports"
+author: "Elysia Nguyen"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# DATA PREPROCESSING
+
+### Import individual datasets
+
+```{r}
+ExchangeRate_Annual <- read.csv("AnnualExchangeRate.csv", header = TRUE)
+ExportQuantity <- read.csv("ExportQuantity.csv", header = TRUE)
+RealGDP <- read.csv("RealGDP.csv", header = TRUE)
+GDPDeflator_VND <- read.csv("VNDGDPDeflator.csv", header = TRUE)
+GDPDeflator_USD <- read.csv("USDGDPDeflator.csv", header = TRUE)
+ExchangeRate_Monthly <- read.csv("MonthlyExchangeRate.csv", header = TRUE)
+```
+
+### Extract relevant columns from each datasets
+
+```{r}
+library(dplyr)
+
+Rice_ExchangeRate_Annual <- ExchangeRate_Annual %>% select(Element, Year, Value)
+Rice_ExportQuantity <- ExportQuantity %>% select(Element, Year, Value)
+Rice_RealGDP <- RealGDP %>% select(Element, Year, Value)
+Rice_GDPDeflator_VND <- GDPDeflator_VND %>% select(Element, Year, Value)
+Rice_GDPDeflator_USD <- GDPDeflator_USD %>% select(Element, Year, Value)
+```
+
+```{r}
+ExchangeRate_Monthly <- ExchangeRate_Monthly %>% select(Year, Months, Value) 
+
+MonthLevels <- c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+
+ExchangeRate_Monthly$Months <- factor(ExchangeRate_Monthly$Months, levels = MonthLevels, ordered = TRUE)
+
+ExchangeRate_Monthly <- ExchangeRate_Monthly %>% arrange(Year, Months)
+```
+
+### Pivot each individual dataset then rename the variable
+
+```{r}
+library(tidyr)
+
+Rice_ExchangeRate_Annual <- Rice_ExchangeRate_Annual %>% pivot_wider(names_from = Element, values_from = Value)
+Rice_ExchangeRate_Annual <- Rice_ExchangeRate_Annual %>% rename("VNDPerUSD" = "Standard local currency units per USD")
+                                                                
+Rice_ExportQuantity <- Rice_ExportQuantity %>% pivot_wider(names_from = Element, values_from = Value)
+Rice_ExportQuantity <- Rice_ExportQuantity %>% rename("ExportQuantity" = "Export quantity")
+                  
+Rice_RealGDP <- Rice_RealGDP %>% pivot_wider(names_from = Element, values_from = Value)
+Rice_RealGDP <- Rice_RealGDP %>% rename("RealGDP" = "Value Standard Local Currency, 2015 prices")
+
+Rice_GDPDeflator_VND <- Rice_GDPDeflator_VND %>% pivot_wider(names_from = Element, values_from = Value)
+Rice_GDPDeflator_VND <- Rice_GDPDeflator_VND %>% rename("VNDGDPDeflator" = "Value Standard Local Currency, 2015 prices")
+
+Rice_GDPDeflator_USD <- Rice_GDPDeflator_USD %>% pivot_wider(names_from = Element, values_from = Value)
+Rice_GDPDeflator_USD <- Rice_GDPDeflator_USD %>% rename("USDGDPDeflator" = "Value Standard Local Currency, 2015 prices")
+```
+
+### Combine individual datasets into one overall and arrange records by year
+
+```{r}
+Rice <- Rice_ExchangeRate_Annual %>%
+  left_join(Rice_ExportQuantity, by = "Year") %>%
+  left_join(Rice_RealGDP, by = "Year") %>%
+  left_join(Rice_GDPDeflator_VND, by = "Year") %>%
+  left_join(Rice_GDPDeflator_USD, by = "Year") %>%
+  arrange(Year)
+
+head(Rice)
+```
+
+### Calculate real exchange rates as nominal exchange rates multiplied by GDP deflators
+
+```{r}
+Rice <- Rice %>% mutate(RealVNDPerUSD = VNDPerUSD*(USDGDPDeflator/VNDGDPDeflator))
+
+head(Rice)
+```
+
+# DATA VISUALIZATION
+
+### Visualize the variables over time highlighting the devaluation in 1985
+
+*Monthly exchange rates*
+
+```{r}
+library(ggplot2)
+library(scales)
+
+Plot_ExchangeRate_Monthly <- ggplot(ExchangeRate_Monthly, aes(x = Months, y = Value, group = Year)) +
+  geom_line(size = 0.75, color = "firebrick") +
+  labs(x = "Month",
+       y = "VND Per USD Exchange Rate") +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9)  
+  )
+
+Plot_ExchangeRate_Monthly
+```
+
+*Nominal annual exchange rates*
+
+```{r}
+Plot_NER <- ggplot(Rice, aes(x = Year, y = VNDPerUSD)) +
+  geom_line(size = 0.75, color = "steelblue") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "firebrick") +
+  labs(x = "Year",
+       y = "Nominal VND Per USD Exchange Rate") +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9)  
+  ) +
+  scale_y_continuous(labels = comma)
+
+Plot_NER
+```
+
+*Real annual exchange rates*
+
+```{r}
+Plot_RER <- ggplot(Rice, aes(x = Year, y = RealVNDPerUSD)) +
+  geom_line(size = 0.75, color = "deepskyblue4") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "firebrick") +
+  labs(x = "Year",
+       y = "Real VND Per USD Exchange Rate") +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9)  
+  ) +
+  scale_y_continuous(labels = comma)
+
+Plot_RER
+```
+
+*Annual export quantities*
+
+```{r}
+Plot_Export <- ggplot(Rice, aes(x = Year, y = ExportQuantity)) +
+  geom_line(size = 0.75, color = "darkolivegreen") +
+  scale_x_continuous(breaks = seq(min(Rice$Year), max(Rice$Year), by = 5)) +
+  geom_vline(xintercept = 1985, linetype = "dashed", color = "firebrick") +
+  labs(x = "Year",
+       y = "Export in Tons") +
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 9)  
+  ) +
+  scale_y_continuous(labels = comma)
+
+Plot_Export
+```
+
+# SVAR MODEL
+
+### Make each variable a time series
+
+```{r}
+ExportQuantity_TS <- ts(Rice$ExportQuantity, 
+                        start = min(Rice$Year), 
+                        end = max(Rice$Year), 
+                        frequency = 1)
+
+RealExchangeRate_TS <- ts(Rice$RealVNDPerUSD, 
+                          start = min(Rice$Year), 
+                          end = max(Rice$Year), 
+                          frequency = 1)
+
+RealGDP_TS <- ts(Rice$RealGDP, 
+                      start = min(Rice$Year), 
+                      end = max(Rice$Year), 
+                      frequency = 1)
+```
+
+### Examine stationarity of each time series
+
+```{r}
+library(tseries)
+
+adf.test(ExportQuantity_TS)
+
+adf.test(RealExchangeRate_TS)
+
+adf.test(RealGDP_TS)
+```
+
+### Transform each time series into a stationary time series through differencing
+
+```{r}
+ExportQuantity_Diff <- diff(ExportQuantity_TS, differences = 1)
+
+ExportQuantity_ADF <- adf.test(ExportQuantity_Diff)
+
+ExportQuantity_ADF
+```
+
+```{r}
+RealGDP_Diff <- diff(RealGDP_TS, differences = 2)
+
+RealGDP_ADF <- adf.test(RealGDP_Diff)
+
+RealGDP_ADF
+```
+
+### Combine all the time series into one matrix
+
+```{r}
+Rice_Matrix <- cbind(ExportQuantity_Diff, RealExchangeRate_TS, RealGDP_Diff) 
+
+Rice_Matrix <- na.omit(Rice_Matrix)
+
+Rice_Matrix
+```
+
+### Determine the lag order
+
+```{r}
+library(vars)
+
+Rice_VARselect <- VARselect(Rice_Matrix, lag.max = 3, type = "none")
+
+Rice_VARselect
+```
+
+### Estimate the reduced-form VAR
+
+```{r}
+Rice_VAR <- VAR(Rice_Matrix, p = 2, type = "none")
+
+summary(Rice_VAR)
+```
+
+### Test if Exchange Rate Granger-causes Export Quantity
+
+```{r}
+Causality_RER <- causality(Rice_VAR, cause = "RealExchangeRate_TS")
+Causality_RER
+```
+
+```{r}
+Causality_GDP <- causality(Rice_VAR, cause = "RealGDP_Diff")
+Causality_GDP
+```
+
+### Identify structural shocks with SVAR CV
+
+```{r}
+library(svars)
+
+Rice_SVAR <- id.cv(Rice_VAR, SB = c(1985, 1)) # Specify the structural break in 1985
+
+summary(Rice_SVAR)
+```
+
+### Assess the IRFs
+
+```{r}
+Rice_IRF <- irf(Rice_SVAR, n.ahead = 10)
+
+plot(Rice_IRF)
+```
+
+### Add confidence intervals around IRFs
+
+```{r}
+Rice_IRF_CI <- wild.boot(Rice_SVAR, nboot = 500)
+
+plot(Rice_IRF_CI)
+```
+
+### Compute FEVD
+
+```{r}
+Rice_FEVD <- fevd(Rice_SVAR, n.ahead = 10)
+
+plot(Rice_FEVD)
+```
+
+### Compute the historical decomposition
+
+```{r}
+Rice_HD <- hd(Rice_SVAR)
+
+plot(Rice_HD)
+```
+
+### Conduct counterfactual analysis without the exchange rate shock
+
+```{r}
+Rice_CF <- cf(Rice_SVAR)
+
+plot(Rice_CF)
+```
+
+# OUTPUT EXPORTS
+
+*Plot of monthly exchange rates*
+```{r}
+ggsave("MonthlyExchangeRate.pdf",
+       plot = Plot_ExchangeRate_Monthly,
+       width = 8,
+       height = 4)
+```
+
+*Plot of annual nominal exchange rates*
+
+```{r}
+ggsave("NominalExchangeRate.pdf",
+       plot = Plot_NER,
+       width = 8,
+       height = 4)
+```
+
+*Plot of annual real exchange rates*
+
+```{r}
+ggsave("RealExchangeRate.pdf",
+       plot = Plot_RER,
+       width = 8,
+       height = 4)
+```
+
+*Plot of annual rice exports*
+
+```{r}
+ggsave("RiceExport.pdf",
+       plot = Plot_Export,
+       width = 8,
+       height = 4)
+```
+
+*Plot of IRF with CI*
+
+```{r}
+pdf("IRF.pdf", width = 16, height = 8)
+layout(matrix(1:16, nrow = 4, byrow = TRUE))
+par(mar = c(4, 4, 3, 1))
+plot(Rice_IRF_CI) 
+dev.off()
+```
+
+*Plot of counterfactual analysis*
+
+```{r}
+pdf("Counterfactual.pdf", width = 8, height = 6)
+plot(Rice_CF)
+dev.off()
+```
+
+*Plot of FEVD*
+
+```{r}
+pdf("FEVD.pdf", width = 8, height = 6)
+plot(Rice_FEVD)
+dev.off()
+```
+
+*Plot of historical decomposition*
+
+```{r}
+pdf("HistoricalDecomposition.pdf", width = 8, height = 6)
+plot(Rice_HD)
+dev.off()
+```
